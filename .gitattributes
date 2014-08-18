@@ -1,0 +1,6 @@
+./gitWinFTPService/*.sln binary
+./gitWinFTPService/*.suo binary
+./gitWinFTPService/*.vcxproj binary
+./gitWinFTPService/*.filters binary
+./gitWinFTPService/*.user binary
+./gitWinFTPService/*.binary
