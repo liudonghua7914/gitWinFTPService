@@ -23,10 +23,10 @@
 				  */
 #define msg120 "120 Service ready in nnn minutes."
 #define msg125 "125 Data connection already open; transfer starting."
-#define msg150 "150 File status okay; about to open data connection."
+#define msg150 "150 File status okay; about to open data connection. "
 #define msg150recv "150 Opening BINARY mode data connection for %s (%i bytes)."
 #define msg150stor "150 Opening BINARY mode data connection for %s."
-#define msg200 "200 Command okay."
+#define msg200 "200 Type set to %s"
 #define msg202 "202 Command not implemented, superfluous at this site."
 #define msg211 "211 System status, or system help reply."
 #define msg212 "212 Directory status."
@@ -181,13 +181,14 @@ void sendMsg(SOCKET ssocket,char *msg,...)
 	strcat(buffer, "\r\n");
 	len = strlen(buffer);
 
-
+	printf("\r\n sendMsg: %s ",buffer);
 	
 	nLeft = len;
 	idx = 0;
 	while(nLeft > 0)
 	{
 		ret = send(ssocket,&buffer[idx],nLeft,0);
+		printf("\r\n send len %d ",ret);
 		if (ret == SOCKET_ERROR)
 		{
 			DWORD dwErr;
@@ -247,7 +248,7 @@ void cmd_quit(const char *p,UINT16 len)
 *************************************************************************************************************************/
 void cmd_cwd(const char *p,UINT16 len)
 {
-
+	sendMsg(pftpInfo->sftpNewSerivesCmd,msg250);
 }
 /*************************************************************************************************************************
 **函数名称：	cmd_cdup
@@ -360,7 +361,14 @@ void cmd_abrt(const char *p,UINT16 len)
 *************************************************************************************************************************/
 void cmd_type(const char *p,UINT16 len)
 {
-	sendMsg(pftpInfo->sftpNewSerivesCmd ,msg200, "Type A");
+	if (!memcmp(p,"TYPE A",strlen("TYPE A")))
+	{
+		sendMsg(pftpInfo->sftpNewSerivesCmd ,msg200,"A");
+	}
+	else if(!memcmp(p,"TYPE I",strlen("TYPE I")))
+	{
+		sendMsg(pftpInfo->sftpNewSerivesCmd ,msg200,"I");
+	}
 	
 }
 /*************************************************************************************************************************
@@ -438,7 +446,7 @@ void cmd_feat(const char *p,UINT16 len)
 	sendMsg(pftpInfo->sftpNewSerivesCmd,"SIZE");
 	sendMsg(pftpInfo->sftpNewSerivesCmd,"MLST tpye*;size*;modify");
 	sendMsg(pftpInfo->sftpNewSerivesCmd,"MLSD");
-//	sendMsg(pftpInfo->sftpNewSerives,"UTF8");
+	sendMsg(pftpInfo->sftpNewSerivesCmd,"UTF8");
 	sendMsg(pftpInfo->sftpNewSerivesCmd,"CLNT");
 	sendMsg(pftpInfo->sftpNewSerivesCmd,"MFMT");
 	sendMsg(pftpInfo->sftpNewSerivesCmd,"211 End");
@@ -458,9 +466,18 @@ void cmd_pasv(const char *p,UINT16 len)
 		printf("\r\n CreateThread Fail");
 	}
 	pftpInfo->hFTPSeriversDataEvent = CreateEvent(NULL,FALSE,FALSE,NULL);
+	
 }
-
-
+/*************************************************************************************************************************
+**函数名称：	cmd_pasv
+**函数功能:
+**入口参数:
+**返回参数:
+*************************************************************************************************************************/
+void cmd_clnt(const char *p,UINT16 len)
+{
+	sendMsg(pftpInfo->sftpNewSerivesCmd,"213 client type set to FlashFXP 2.2.985");
+};
 struct ftpd_command {
 	char *cmd;
 	void (*func) (const char *p,UINT16 len);
@@ -494,6 +511,7 @@ static struct ftpd_command ftpd_commands[] = {
 	{"DELE", cmd_dele},
 	{"FEAT", cmd_feat},
 	{"PASV", cmd_pasv},
+	{"CLNT", cmd_clnt},
 	{NULL, NULL}
 };
 /*************************************************************************************************************************
@@ -510,17 +528,34 @@ void ProcessFtpCmd(void)
 		case FTPD_USER:
 			break;
 		case FTPD_IDLE:
+			//sendMsg(pftpInfo->sftpNewSerivesCmd,msg226,"\\");
 			break;
 		case FTPD_MLSD:
-		case FTPD_NLST:
-		case FTPD_LIST:
-			printf("LIST");
+			printf("FTPD_MLSD");
 			sendMsg(pftpInfo->sftpNewSerivesCmd,msg150);
-			sendMsg(pftpInfo->sftpNewSerivesData,"tpye=file;modify=20140727045157;size=91875;ldh.txt");
-			sendMsg(pftpInfo->sftpNewSerivesData,"tpye=dir;modify=20140727045158;xxoo");
-			sendMsg(pftpInfo->sftpNewSerivesData,"tpye=file;modify=20140727035157;size=11875;fly.doc");
-			sendMsg(pftpInfo->sftpNewSerivesData,"tpye=file;modify=20140727042157;size=91175;audio.hex");
+			pftpInfo->FptCmdState = FTPD_IDLE;
+			sendMsg(pftpInfo->sftpNewSerivesData,"type=file;modify=20140727045155;size=91875; fly.doc");//文件名前需要空格
+			sendMsg(pftpInfo->sftpNewSerivesData,"type=file;modify=20140727045408;size=365651997; opencv-2.4.9.exe");
+			sendMsg(pftpInfo->sftpNewSerivesData,"type=dir;modify=20140727045155;size=912875; xxoo");
+			
+			closesocket(pftpInfo->sftpNewSerivesData);
+			sendMsg(pftpInfo->sftpNewSerivesCmd,msg226);	
+			pftpInfo->bKillFTPSeriversDataThread = TRUE;
+			pftpInfo->FptCmdState = FTPD_IDLE;
+			break;
+		case FTPD_NLST:
+			pftpInfo->FptCmdState = FTPD_IDLE;
+			break;
+		case FTPD_LIST:
+			printf("FTPD_LIST");
+			sendMsg(pftpInfo->sftpNewSerivesCmd,msg150);
+			sendMsg(pftpInfo->sftpNewSerivesData,"-r--r--r-- 1 ftp ftp          48026 Jul 30 15:41 baidu.htm");
+			sendMsg(pftpInfo->sftpNewSerivesData,"drwxr-xr-x 1 ftp ftp              0 Jul 30 15:41 baidu_files");
+			sendMsg(pftpInfo->sftpNewSerivesData,"-r-xr-xr-x 1 ftp ftp      365651997 Jul 27 12:54 opencv-2.4.9.exe");
+			sendMsg(pftpInfo->sftpNewSerivesData,"-r--r--r-- 1 ftp ftp          91875 Jul 27 12:51 VS201audio.hex");
+			closesocket(pftpInfo->sftpNewSerivesData);
 			sendMsg(pftpInfo->sftpNewSerivesCmd,msg226);
+			pftpInfo->bKillFTPSeriversDataThread = TRUE;
 			pftpInfo->FptCmdState = FTPD_IDLE;
 			break;
 		case FTPD_RETR:
@@ -573,13 +608,13 @@ DWORD WINAPI ThreadFTPSeriversDataFunc(LPVOID arg)
 	}
 	while (!pftpInfo->bKillFTPSeriversDataThread)
 	{
-		WaitForSingleObject(pftpInfo->hFTPSeriversDataEvent,1000);
+		WaitForSingleObject(pftpInfo->hFTPSeriversDataEvent,3000);
 		ProcessFtpCmd();
 	}
 	printf("\r\n sftpSerives closesocket");
 	closesocket(pftpInfo->sftpSerivesData);
-	WSACleanup();
 	CloseHandle(pftpInfo->hFTPSeriversDataThread);
+	CloseHandle(pftpInfo->hFTPSeriversDataEvent);
 	return 0;
 }
 /*************************************************************************************************************************
@@ -603,6 +638,10 @@ void ftpServiceProcess(char *p,UINT16 len)
 	{
 		printf("func name: %s ",ftpd_cmd->cmd);
 		ftpd_cmd->func(p,len);
+	}
+	else
+	{
+		sendMsg(pftpInfo->sftpNewSerivesCmd,msg500);
 	}
 }
 /*************************************************************************************************************************
@@ -650,7 +689,7 @@ DWORD WINAPI ThreadFTPSeriversCmdFunc(LPVOID arg)
 		ret = recv(pftpInfo->sftpNewSerivesCmd,pftpInfo->SerivesCmdRecvBuf,sizeof(pftpInfo->SerivesCmdRecvBuf) - 1,0);
 		if(INVALID_SOCKET == ret)
 		{
-			printf("\r\n sftpSerives Tell the user that accept INVALID_SOCKET ");
+			printf("\r\n sftpSerives Tell the user that recv INVALID_SOCKET ");
 			pftpInfo->bKillFTPSeriversCmdThread = TRUE;
 		}
 		if(ret > 0)
