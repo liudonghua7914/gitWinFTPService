@@ -17,10 +17,10 @@
              In this case, the text is exact and not left to the
              particular implementation; it must read:
                   MARK yyyy = mmmm
-             Where yyyy is User-process data stream marker, and mmmm
-             server's equivalent marker (note the spaces between markers
-             and "=").
-*/
+				  Where yyyy is User-process data stream marker, and mmmm
+				  server's equivalent marker (note the spaces between markers
+				  and "=").
+				  */
 #define msg120 "120 Service ready in nnn minutes."
 #define msg125 "125 Data connection already open; transfer starting."
 #define msg150 "150 File status okay; about to open data connection."
@@ -32,6 +32,7 @@
 #define msg212 "212 Directory status."
 #define msg213 "213 File status."
 #define msg214 "214 %s."
+#define msg215 "215 %s."
 /*
              214 Help message.
              On how to use the server or the meaning of a particular
@@ -119,6 +120,7 @@ enum FTP_SERVICE
 	FTPD_USER,
 	FTPD_PASS,
 	FTPD_IDLE,
+	FTPD_MLSD,
 	FTPD_NLST,
 	FTPD_LIST,
 	FTPD_RETR,
@@ -130,28 +132,40 @@ enum FTP_SERVICE
 
 typedef struct  
 {
-	BYTE ftpServicestatus;
-	SOCKET sftpSerives;
-	SOCKET sftpNewSerives;
-	WSADATA sftpSerivesData;
-	SOCKADDR_IN saftpSerives;
-	SOCKADDR_IN remoteSerives;
-	char SerivesRecvBuf[512];
-	HANDLE hFTPSeriversThread;
-	BOOL bKillFTPSeriversThread;
+	BYTE ftpServicesCmdstatus;
+	SOCKET sftpSerivesCmd;
+	SOCKET sftpNewSerivesCmd;
+	WSADATA sftpSerivesCmdData;
+	SOCKADDR_IN saftpSerivesCmd;
+	SOCKADDR_IN remoteSerivesCmd;
+	char SerivesCmdRecvBuf[512];
+	HANDLE hFTPSeriversCmdThread;
+	BOOL bKillFTPSeriversCmdThread;
+
+	BYTE ftpServicesDatatatus;
+	SOCKET sftpSerivesData;
+	SOCKET sftpNewSerivesData;
+	SOCKADDR_IN saftpSerivesData;
+	SOCKADDR_IN remoteSerivesData;
+	char SerivesDataRecvBuf[512];
+	HANDLE hFTPSeriversDataThread;
+	BOOL bKillFTPSeriversDataThread;
+	HANDLE hFTPSeriversDataEvent;
+	BYTE FptCmdState;
+
 }FTP_INFO;
 
 FTP_INFO ftpInfo;
 FTP_INFO *pftpInfo;
 
-
+DWORD WINAPI ThreadFTPSeriversDataFunc(LPVOID arg);
 /*************************************************************************************************************************
 **函数名称：	sendMsg
 **函数功能:
 **入口参数:
 **返回参数:
 *************************************************************************************************************************/
-void sendMsg(SOCKET ssocket,char *p,char *msg,...)
+void sendMsg(SOCKET ssocket,char *msg,...)
 {
 	int ret;
 	int nLeft;
@@ -160,12 +174,9 @@ void sendMsg(SOCKET ssocket,char *p,char *msg,...)
 	va_list arg;
 	char buffer[256];
 	int len;
-	memset(buffer,'\0',sizeof(buffer));
-	len  = strlen(p);
-	memcpy(buffer,p,len);
-
+	
 	va_start(arg, msg);
-	vsprintf(&buffer[len], msg, arg);
+	vsprintf(&buffer[0], msg, arg);
 	va_end(arg);
 	strcat(buffer, "\r\n");
 	len = strlen(buffer);
@@ -179,7 +190,10 @@ void sendMsg(SOCKET ssocket,char *p,char *msg,...)
 		ret = send(ssocket,&buffer[idx],nLeft,0);
 		if (ret == SOCKET_ERROR)
 		{
-			printf("\r\n send error");
+			DWORD dwErr;
+			dwErr = GetLastError();
+			closesocket(ssocket);
+			printf("\r\n send error = %d ",dwErr);
 		}
 		nLeft -= ret;
 		idx += ret;
@@ -193,7 +207,7 @@ void sendMsg(SOCKET ssocket,char *p,char *msg,...)
 *************************************************************************************************************************/
 void cmd_user(const char *p,UINT16 len)
 {
-
+	sendMsg(pftpInfo->sftpNewSerivesCmd,msg331);
 }
 /*************************************************************************************************************************
 **函数名称：	cmd_pass
@@ -203,7 +217,7 @@ void cmd_user(const char *p,UINT16 len)
 *************************************************************************************************************************/
 void cmd_pass(const char *p,UINT16 len)
 {
-
+	sendMsg(pftpInfo->sftpNewSerivesCmd, msg230);
 }
 /*************************************************************************************************************************
 **函数名称：	cmd_port
@@ -253,7 +267,18 @@ void cmd_cdup(const char *p,UINT16 len)
 *************************************************************************************************************************/
 void cmd_pwd(const char *p,UINT16 len)
 {
-
+	sendMsg(pftpInfo->sftpNewSerivesCmd,msg257PWD,"\\");
+}
+/*************************************************************************************************************************
+**函数名称：	cmd_mlsd
+**函数功能:
+**入口参数:
+**返回参数:
+*************************************************************************************************************************/
+void cmd_mlsd(const char *p,UINT16 len)
+{
+	pftpInfo->FptCmdState = FTPD_MLSD;
+	SetEvent(pftpInfo->hFTPSeriversDataEvent);
 }
 /*************************************************************************************************************************
 **函数名称：	cmd_nlst
@@ -263,7 +288,8 @@ void cmd_pwd(const char *p,UINT16 len)
 *************************************************************************************************************************/
 void cmd_nlst(const char *p,UINT16 len)
 {
-
+	pftpInfo->FptCmdState = FTPD_NLST;
+	SetEvent(pftpInfo->hFTPSeriversDataEvent);
 }
 /*************************************************************************************************************************
 **函数名称：	cmd_list
@@ -273,7 +299,8 @@ void cmd_nlst(const char *p,UINT16 len)
 *************************************************************************************************************************/
 void cmd_list(const char *p,UINT16 len)
 {
-
+	pftpInfo->FptCmdState = FTPD_LIST;
+	SetEvent(pftpInfo->hFTPSeriversDataEvent);
 }
 /*************************************************************************************************************************
 **函数名称：	cmd_retr
@@ -313,7 +340,7 @@ void cmd_noop(const char *p,UINT16 len)
 *************************************************************************************************************************/
 void cmd_syst(const char *p,UINT16 len)
 {
-
+	sendMsg(pftpInfo->sftpNewSerivesCmd ,msg215, "UNIX");
 }
 /*************************************************************************************************************************
 **函数名称：	cmd_abrt
@@ -333,7 +360,8 @@ void cmd_abrt(const char *p,UINT16 len)
 *************************************************************************************************************************/
 void cmd_type(const char *p,UINT16 len)
 {
-
+	sendMsg(pftpInfo->sftpNewSerivesCmd ,msg200, "Type A");
+	
 }
 /*************************************************************************************************************************
 **函数名称：	cmd_mode
@@ -402,9 +430,34 @@ void cmd_dele(const char *p,UINT16 len)
 **入口参数:
 **返回参数:
 *************************************************************************************************************************/
+void cmd_feat(const char *p,UINT16 len)
+{
+	sendMsg(pftpInfo->sftpNewSerivesCmd,"211-Features:");
+	sendMsg(pftpInfo->sftpNewSerivesCmd,"MDTM");
+	sendMsg(pftpInfo->sftpNewSerivesCmd,"REST STREAM");
+	sendMsg(pftpInfo->sftpNewSerivesCmd,"SIZE");
+	sendMsg(pftpInfo->sftpNewSerivesCmd,"MLST tpye*;size*;modify");
+	sendMsg(pftpInfo->sftpNewSerivesCmd,"MLSD");
+//	sendMsg(pftpInfo->sftpNewSerives,"UTF8");
+	sendMsg(pftpInfo->sftpNewSerivesCmd,"CLNT");
+	sendMsg(pftpInfo->sftpNewSerivesCmd,"MFMT");
+	sendMsg(pftpInfo->sftpNewSerivesCmd,"211 End");
+}
+/*************************************************************************************************************************
+**函数名称：	cmd_pasv
+**函数功能:
+**入口参数:
+**返回参数:
+*************************************************************************************************************************/
 void cmd_pasv(const char *p,UINT16 len)
 {
-
+	pftpInfo->bKillFTPSeriversDataThread = FALSE;
+	pftpInfo->hFTPSeriversDataThread = CreateThread(NULL,0,ThreadFTPSeriversDataFunc,NULL,0,NULL);
+	if(NULL == pftpInfo->hFTPSeriversDataThread)
+	{
+		printf("\r\n CreateThread Fail");
+	}
+	pftpInfo->hFTPSeriversDataEvent = CreateEvent(NULL,FALSE,FALSE,NULL);
 }
 
 
@@ -422,6 +475,7 @@ static struct ftpd_command ftpd_commands[] = {
 	{"CDUP", cmd_cdup},
 	{"PWD", cmd_pwd},
 	{"XPWD", cmd_pwd},
+	{"MLSD", cmd_mlsd},
 	{"NLST", cmd_nlst},
 	{"LIST", cmd_list},
 	{"RETR", cmd_retr},
@@ -438,10 +492,96 @@ static struct ftpd_command ftpd_commands[] = {
 	{"RMD", cmd_rmd},
 	{"XRMD", cmd_rmd},
 	{"DELE", cmd_dele},
+	{"FEAT", cmd_feat},
 	{"PASV", cmd_pasv},
 	{NULL, NULL}
 };
+/*************************************************************************************************************************
+**函数名称：	ThreadFTPSeriversDataFunc
+**函数功能:
+**入口参数:
+**返回参数:
+*************************************************************************************************************************/
+void ProcessFtpCmd(void)
+{
+	printf("\r\n ProcessFtpCmd: %d ",pftpInfo->FptCmdState);
+	switch(pftpInfo->FptCmdState)
+	{
+		case FTPD_USER:
+			break;
+		case FTPD_IDLE:
+			break;
+		case FTPD_MLSD:
+		case FTPD_NLST:
+		case FTPD_LIST:
+			printf("LIST");
+			sendMsg(pftpInfo->sftpNewSerivesCmd,msg150);
+			sendMsg(pftpInfo->sftpNewSerivesData,"tpye=file;modify=20140727045157;size=91875;ldh.txt");
+			sendMsg(pftpInfo->sftpNewSerivesData,"tpye=dir;modify=20140727045158;xxoo");
+			sendMsg(pftpInfo->sftpNewSerivesData,"tpye=file;modify=20140727035157;size=11875;fly.doc");
+			sendMsg(pftpInfo->sftpNewSerivesData,"tpye=file;modify=20140727042157;size=91175;audio.hex");
+			sendMsg(pftpInfo->sftpNewSerivesCmd,msg226);
+			pftpInfo->FptCmdState = FTPD_IDLE;
+			break;
+		case FTPD_RETR:
+			break;
+		case FTPD_RNFR:
+			break;
+		case FTPD_STOR:
+			break;
+		case FTPD_QUIT:
+			break;
+		default:
+			break;
+	}
+}
+/*************************************************************************************************************************
+**函数名称：	ThreadFTPSeriversDataFunc
+**函数功能:
+**入口参数:
+**返回参数:
+*************************************************************************************************************************/
+DWORD WINAPI ThreadFTPSeriversDataFunc(LPVOID arg)
+{	
+	pftpInfo->sftpSerivesData = socket(AF_INET,SOCK_STREAM,0);
+	if(INVALID_SOCKET == pftpInfo->sftpSerivesData)
+	{
+		printf("\r\n sftpSerives Tell the user that socket INVALID_SOCKET ");
+		WSACleanup();
+	}
 
+
+
+	pftpInfo->saftpSerivesData.sin_family = AF_INET;
+	pftpInfo->saftpSerivesData.sin_addr.S_un.S_addr = inet_addr("127.0.0.1");
+	pftpInfo->saftpSerivesData.sin_port =  htons(50123);
+	if(INVALID_SOCKET == bind(pftpInfo->sftpSerivesData,(SOCKADDR *)&pftpInfo->saftpSerivesData,sizeof(pftpInfo->saftpSerivesData)))
+	{
+		DWORD dwErr = GetLastError();
+		printf("\r\n sftpSerives Tell the user that bind INVALID_SOCKET %d ",dwErr);
+	}
+	printf("\r\n listen..data...");
+	listen(pftpInfo->sftpSerivesData,8);
+	sendMsg(pftpInfo->sftpNewSerivesCmd,msg227,127,0,0,1,195,203);
+
+	int addrlen = sizeof(pftpInfo->remoteSerivesData);
+	pftpInfo->sftpNewSerivesData = accept(pftpInfo->sftpSerivesData,(SOCKADDR *)&pftpInfo->remoteSerivesData,&addrlen);
+	if(INVALID_SOCKET == pftpInfo->sftpNewSerivesData)
+	{
+		DWORD dwErr = GetLastError();
+		printf("\r\n sftpSerives Tell the user that accept INVALID_SOCKET %d ",dwErr);
+	}
+	while (!pftpInfo->bKillFTPSeriversDataThread)
+	{
+		WaitForSingleObject(pftpInfo->hFTPSeriversDataEvent,1000);
+		ProcessFtpCmd();
+	}
+	printf("\r\n sftpSerives closesocket");
+	closesocket(pftpInfo->sftpSerivesData);
+	WSACleanup();
+	CloseHandle(pftpInfo->hFTPSeriversDataThread);
+	return 0;
+}
 /*************************************************************************************************************************
 **函数名称：	ftpServiceProcess
 **函数功能:
@@ -450,15 +590,15 @@ static struct ftpd_command ftpd_commands[] = {
 *************************************************************************************************************************/
 void ftpServiceProcess(char *p,UINT16 len)
 {
-	printf("sftpSerives rev:  %s ",p);
+	printf("\r\n sftpSerives rev:  %s ",p);
 	struct ftpd_command *ftpd_cmd;
-	char cmd[5];
-	memcpy(cmd,p,4);
+
 	for (ftpd_cmd = ftpd_commands; ftpd_cmd->cmd != NULL; ftpd_cmd++) 
 	{
-		if (!strcmp(ftpd_cmd->cmd, cmd))
+		if (!memcmp(p,ftpd_cmd->cmd,strlen(ftpd_cmd->cmd)))
 			break;
 	}
+
 	if (ftpd_cmd->func)
 	{
 		printf("func name: %s ",ftpd_cmd->cmd);
@@ -471,82 +611,84 @@ void ftpServiceProcess(char *p,UINT16 len)
 **入口参数:
 **返回参数:
 *************************************************************************************************************************/
-DWORD WINAPI ThreadFTPSeriversFunc(LPVOID arg)
+DWORD WINAPI ThreadFTPSeriversCmdFunc(LPVOID arg)
 {
 	int ret,err;
+
+	pftpInfo->sftpSerivesCmd = socket(AF_INET,SOCK_STREAM,0);
+	if(INVALID_SOCKET == pftpInfo->sftpSerivesCmd)
+	{
+		printf("\r\n sftpSerives Tell the user that socket INVALID_SOCKET ");
+		WSACleanup();
+	}
+	
+	
+
+	pftpInfo->saftpSerivesCmd.sin_family = AF_INET;
+	pftpInfo->saftpSerivesCmd.sin_addr.S_un.S_addr = inet_addr("127.0.0.1");
+	pftpInfo->saftpSerivesCmd.sin_port =  htons(21);
+	if(INVALID_SOCKET == bind(pftpInfo->sftpSerivesCmd,(SOCKADDR *)&pftpInfo->saftpSerivesCmd,sizeof(pftpInfo->saftpSerivesCmd)))
+	{
+		DWORD dwErr = GetLastError();
+		printf("\r\n sftpSerives Tell the user that bind INVALID_SOCKET %d ",dwErr);
+	}
+	printf("\r\n listen.....");
+	listen(pftpInfo->sftpSerivesCmd,8);
+	int addrlen = sizeof(pftpInfo->remoteSerivesCmd);
+	pftpInfo->sftpNewSerivesCmd = accept(pftpInfo->sftpSerivesCmd,(SOCKADDR *)&pftpInfo->remoteSerivesCmd,&addrlen);
+	if(INVALID_SOCKET == pftpInfo->sftpNewSerivesCmd)
+	{
+		DWORD dwErr = GetLastError();
+		printf("\r\n sftpSerives Tell the user that accept INVALID_SOCKET %d ",dwErr);
+	}
+
+
+	sendMsg(pftpInfo->sftpNewSerivesCmd,msg220);
+	while(!pftpInfo->bKillFTPSeriversCmdThread)
+	{
+		memset(pftpInfo->SerivesCmdRecvBuf,'\0',sizeof(pftpInfo->SerivesCmdRecvBuf));
+		ret = recv(pftpInfo->sftpNewSerivesCmd,pftpInfo->SerivesCmdRecvBuf,sizeof(pftpInfo->SerivesCmdRecvBuf) - 1,0);
+		if(INVALID_SOCKET == ret)
+		{
+			printf("\r\n sftpSerives Tell the user that accept INVALID_SOCKET ");
+			pftpInfo->bKillFTPSeriversCmdThread = TRUE;
+		}
+		if(ret > 0)
+		{
+			ftpServiceProcess(pftpInfo->SerivesCmdRecvBuf,ret);
+		}
+	}
+	printf("\r\n sftpSerives closesocket");
+	closesocket(pftpInfo->sftpSerivesCmd);
+	WSACleanup();
+	CloseHandle(pftpInfo->hFTPSeriversCmdThread);
+	return 0;
+}
+
+int _tmain(int argc, _TCHAR* argv[])
+{
+	int err;
 	WORD dwVersion;
+	memset(&ftpInfo,0,sizeof(ftpInfo));
+	pftpInfo = &ftpInfo;
 	dwVersion = MAKEWORD(2,2);
-	err = WSAStartup(dwVersion,&pftpInfo->sftpSerivesData);
+	err = WSAStartup(dwVersion,&pftpInfo->sftpSerivesCmdData);
 	if ( err != 0 ) 
 	{
 		printf("\r\n Tell the user that we could not find a usable WinSock DLL");
 		return 0;
 	}
 
-	if ( LOBYTE(pftpInfo->sftpSerivesData.wVersion ) != 2 ||HIBYTE(pftpInfo->sftpSerivesData.wVersion ) != 2 ) 
+	if ( LOBYTE(pftpInfo->sftpSerivesCmdData.wVersion ) != 2 ||HIBYTE(pftpInfo->sftpSerivesCmdData.wVersion ) != 2 ) 
 	{
 		printf("\r\n Tell the user that we could not find a usable WinSock DLL. ");
 		WSACleanup();
 		return 0;
 	}
 
-	pftpInfo->sftpSerives = socket(AF_INET,SOCK_STREAM,0);
-	if(INVALID_SOCKET == pftpInfo->sftpSerives)
-	{
-		printf("\r\n sftpSerives Tell the user that socket INVALID_SOCKET ");
-		WSACleanup();
-	}
-	 BOOL bBroadcast = TRUE;
-	setsockopt(pftpInfo->sftpSerives,SOL_SOCKET,SO_BROADCAST,(const char *)&bBroadcast,sizeof(BOOL));
-	/*if(INVALID_SOCKET == pftpInfo->sftpSerives)
-	{
-	printf("\r\n sftpSerives Tell the user that socket INVALID_SOCKET ");
-	WSACleanup();
-	}*/
-	pftpInfo->saftpSerives.sin_family = AF_INET;
-	pftpInfo->saftpSerives.sin_addr.S_un.S_addr = inet_addr("127.0.0.1");
-	pftpInfo->saftpSerives.sin_port =  htons(21);
-	if(INVALID_SOCKET == bind(pftpInfo->sftpSerives,(SOCKADDR *)&pftpInfo->saftpSerives,sizeof(pftpInfo->saftpSerives)))
-	{
-		DWORD dwErr = GetLastError();
-		printf("\r\n sftpSerives Tell the user that bind INVALID_SOCKET %d ",dwErr);
-	}
-	listen(pftpInfo->sftpSerives,8);
-	int addrlen = sizeof(pftpInfo->remoteSerives);
-	pftpInfo->sftpNewSerives = accept(pftpInfo->sftpSerives,(SOCKADDR *)&pftpInfo->remoteSerives,&addrlen);
-	if(INVALID_SOCKET == pftpInfo->sftpNewSerives)
-	{
-		DWORD dwErr = GetLastError();
-		printf("\r\n sftpSerives Tell the user that accept INVALID_SOCKET %d ",dwErr);
-	}
-	while(!pftpInfo->bKillFTPSeriversThread)
-	{
-		memset(pftpInfo->SerivesRecvBuf,'\0',sizeof(pftpInfo->SerivesRecvBuf));
-		ret = recv(pftpInfo->sftpNewSerives,pftpInfo->SerivesRecvBuf,sizeof(pftpInfo->SerivesRecvBuf) - 1,0);
-		if(INVALID_SOCKET == ret)
-		{
-			printf("\r\n sftpSerives Tell the user that accept INVALID_SOCKET ");
-			pftpInfo->bKillFTPSeriversThread = TRUE;
-		}
-		if(ret > 0)
-		{
-			ftpServiceProcess(pftpInfo->SerivesRecvBuf,ret);
-		}
-	}
-	printf("\r\n sftpSerives closesocket");
-	closesocket(pftpInfo->sftpSerives);
-	WSACleanup();
-	CloseHandle(pftpInfo->hFTPSeriversThread);
-	return 0;
-}
-
-int _tmain(int argc, _TCHAR* argv[])
-{
-	memset(&ftpInfo,0,sizeof(ftpInfo));
-	pftpInfo = &ftpInfo;
-	pftpInfo->bKillFTPSeriversThread = FALSE;
-	pftpInfo->hFTPSeriversThread = CreateThread(NULL,0,ThreadFTPSeriversFunc,NULL,0,NULL);
-	if(NULL == pftpInfo->hFTPSeriversThread)
+	pftpInfo->bKillFTPSeriversCmdThread = FALSE;
+	pftpInfo->hFTPSeriversCmdThread = CreateThread(NULL,0,ThreadFTPSeriversCmdFunc,NULL,0,NULL);
+	if(NULL == pftpInfo->hFTPSeriversCmdThread)
 	{
 		printf("\r\n CreateThread Fail");
 	}
